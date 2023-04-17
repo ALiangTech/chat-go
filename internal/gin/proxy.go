@@ -9,7 +9,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 	"github.com/sashabaranov/go-openai"
 )
@@ -54,8 +53,20 @@ type OpenAIBody struct {
 }
 
 func RequestOpenAi(r *gin.Engine) {
-
 	r.POST("/chat", func(ctx *gin.Context) {
+		ctx.Header("Content-type", "text/event-stream")
+		ctx.Header("Cache-Control", "no-cache")
+		ctx.Header("Connection", "keep-alive")
+		apikeyResponse, err := http.Get("https://ny2qtwmutr.hk.aircode.run/getapikey")
+		if err != nil {
+			ctx.JSON(200, gin.H{
+				"message": "获取密钥失败",
+				"error":   err,
+			})
+		}
+		apikeyBody, _ := io.ReadAll(apikeyResponse.Body)
+		apikey := string(apikeyBody)
+		fmt.Print(apikey)
 		// 获取body 参数
 		// ChatMessageRoleSystem    = "system"
 		// ChatMessageRoleUser      = "user"
@@ -65,14 +76,14 @@ func RequestOpenAi(r *gin.Engine) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		config := openai.DefaultConfig("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")
+		config := openai.DefaultConfig(apikey)
 		config.BaseURL = "https://openai.hanjunty.top/v1"
 		c := openai.NewClientWithConfig(config)
 		octx := context.Background()
 
 		req := openai.ChatCompletionRequest{
 			Model:     openai.GPT3Dot5Turbo,
-			MaxTokens: 20,
+			MaxTokens: 500,
 			Messages:  body.Messages,
 			// Messages: []openai.ChatCompletionMessage{
 			// 	{
@@ -89,10 +100,10 @@ func RequestOpenAi(r *gin.Engine) {
 			return
 		}
 		defer stream.Close()
-		fmt.Printf("Stream response: ")
 		for {
 			response, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
+				fmt.Printf("%v", err)
 				fmt.Println("\nstream finished")
 				return
 			}
@@ -100,13 +111,8 @@ func RequestOpenAi(r *gin.Engine) {
 				fmt.Printf("\nstream error: %v\n", err)
 				return
 			}
-			sse.Encode(ctx.Writer, sse.Event{
-				Event: "message",
-				Data:  response.Choices[0].Delta.Content,
-			})
-			// 刷新数据，以通知请求端
+			fmt.Fprintf(ctx.Writer, response.Choices[0].Delta.Content)
 			ctx.Writer.Flush()
 		}
 	})
-
 }
